@@ -71,12 +71,20 @@ load_bacdive_config <- function(proj_dir,
     bd_splits_csv = resolve_path(get_value("BD_SPLITS_CSV"), proj_dir),
     genome_family_map_csv = resolve_path(get_value("GENOME_FAMILY_MAP_CSV",
                                                    file.path(reports_dir, "genome_family_map.csv")), proj_dir),
-    selection_probs_rds = resolve_path(get_value("SELECTION_PROBS_RDS"), proj_dir),
-    bugphyzz_proxies_rds = resolve_path(get_value("BUGPHYZZ_PROXIES_RDS"), proj_dir),
+    selection_probs_rds = resolve_path(
+      get_value("SELECTION_PROBS_RDS", file.path("data", "selection", "selection_probs.rds")),
+      proj_dir
+    ),
+    bugphyzz_proxies_rds = resolve_path(
+      get_value("BUGPHYZZ_PROXIES_RDS", file.path("data", "selection", "bugphyzz_with_proxies.rds")),
+      proj_dir
+    ),
     count_list_rds = resolve_path(get_value("COUNT_LIST_RDS"), proj_dir),
     bacdive_complete_rds = resolve_path(get_value("BACDIVE_COMPLETE_RDS"), proj_dir),
-    bacdive_test_rds = resolve_path(get_value("BACDIVE_TEST_RDS",
-                                              file.path(reports_dir, "bacdive_test.rds")), proj_dir),
+    bacdive_test_rds = resolve_path(
+      get_value("BACDIVE_TEST_RDS", file.path("output", "bacdive_test.rds")),
+      proj_dir
+    ),
     fasta_dir = resolve_path(get_value("FASTA_DIR"), proj_dir),
     microbe_cards_xlsx = resolve_path(get_value("MICROBE_CARDS_XLSX"), proj_dir),
     checkpoints_dir = resolve_path(get_value("CHECKPOINTS_DIR"), proj_dir)

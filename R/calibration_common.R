@@ -38,6 +38,66 @@ nll_multi_temp <- function(T, z_mat, y_mat) {
   -mean(rowSums(y_mat * lp))
 }
 
+softmax_rows <- function(z_mat) {
+  z_shift <- z_mat - apply(z_mat, 1, max)
+  ez <- exp(z_shift)
+  ez / rowSums(ez)
+}
+
+fit_dirichlet_calibration <- function(p_mat, y_mat, lambda = 1e-4, maxit = 300) {
+  eps <- 1e-9
+  p <- pmax(pmin(p_mat, 1 - eps), eps)
+  p <- p / rowSums(p)
+  x <- log(p)
+  k <- ncol(p)
+  y_idx <- apply(y_mat, 1, which.max)
+
+  if (nrow(p) < k || length(unique(y_idx)) < 2) {
+    return(list(W = diag(k), b = rep(0, k), converged = FALSE, fallback = TRUE))
+  }
+
+  unpack_theta <- function(theta) {
+    W <- matrix(theta[seq_len(k * k)], nrow = k, ncol = k, byrow = TRUE)
+    b <- theta[(k * k + 1):(k * k + k)]
+    list(W = W, b = b)
+  }
+
+  objective <- function(theta) {
+    u <- unpack_theta(theta)
+    z <- x %*% t(u$W) + matrix(u$b, nrow = nrow(x), ncol = k, byrow = TRUE)
+    p_hat <- softmax_rows(z)
+    nll <- -mean(log(p_hat[cbind(seq_len(nrow(p_hat)), y_idx)]))
+    nll + lambda * mean(u$W^2)
+  }
+
+  theta0 <- c(as.vector(t(diag(k))), rep(0, k))
+  opt <- tryCatch(
+    optim(theta0, objective, method = "BFGS", control = list(maxit = maxit, reltol = 1e-9)),
+    error = function(e) NULL
+  )
+
+  if (is.null(opt) || is.null(opt$par) || !is.finite(opt$value)) {
+    return(list(W = diag(k), b = rep(0, k), converged = FALSE, fallback = TRUE))
+  }
+
+  u <- unpack_theta(opt$par)
+  list(
+    W = u$W,
+    b = u$b,
+    converged = isTRUE(opt$convergence == 0),
+    fallback = FALSE
+  )
+}
+
+predict_dirichlet_calibration <- function(fit, p_mat) {
+  eps <- 1e-9
+  p <- pmax(pmin(p_mat, 1 - eps), eps)
+  p <- p / rowSums(p)
+  x <- log(p)
+  z <- x %*% t(fit$W) + matrix(fit$b, nrow = nrow(x), ncol = ncol(x), byrow = TRUE)
+  softmax_rows(z)
+}
+
 ece <- function(p, y, n_bins = 10) {
   bins <- cut(p, breaks = seq(0, 1, length.out = n_bins + 1), include.lowest = TRUE)
   bin_stats <- data.frame(p = p, y = y, bin = bins) %>%

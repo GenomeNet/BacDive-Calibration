@@ -27,7 +27,7 @@ fi
 
 BACDIVE_CONDA_SH="${BACDIVE_CONDA_SH:-${HOME}/miniconda3/etc/profile.d/conda.sh}"
 BACDIVE_TF_ENV="${BACDIVE_TF_ENV:-tf}"
-EVAL_SCRIPT_PATH="${EVAL_SCRIPT_PATH:-${SCRIPT_DIR}/eval_test.R}"
+EVAL_SCRIPT_PATH="${EVAL_SCRIPT_PATH:-${SCRIPT_DIR}/R/eval_test.R}"
 
 source "${BACDIVE_CONDA_SH}"
 conda activate "${BACDIVE_TF_ENV}"

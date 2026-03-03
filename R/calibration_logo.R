@@ -4,7 +4,7 @@
 # predict on the held-out family. Aggregate held-out predictions for ECE.
 #
 # Prereq: run build_genome_family_map.R to create genome_family_map.csv
-# Usage: conda run -n genome Rscript calibration_logo.R
+# Usage: conda run -n genome Rscript R/calibration_logo.R
 
 library(ggplot2)
 library(dplyr)
@@ -14,7 +14,8 @@ library(data.table)
 args <- commandArgs(trailingOnly = FALSE)
 file_arg <- grep("^--file=", args, value = TRUE)
 script_path <- if (length(file_arg)) normalizePath(sub("^--file=", "", file_arg)) else normalizePath(getwd())
-proj_dir <- if (dir.exists(script_path)) script_path else dirname(script_path)
+script_dir <- if (dir.exists(script_path)) script_path else dirname(script_path)
+proj_dir <- if (basename(script_dir) == "R") dirname(script_dir) else script_dir
 source(file.path(proj_dir, "R", "config_paths.R"))
 source(file.path(proj_dir, "R", "calibration_common.R"))
 cfg <- load_bacdive_config(
@@ -24,6 +25,8 @@ cfg <- load_bacdive_config(
 
 ACC_THRESHOLD <- 0.6
 N_FILTER <- 100
+ENABLE_DIRICHLET <- tolower(Sys.getenv("ENABLE_DIRICHLET_MULTICLASS", "false")) %in%
+  c("1", "true", "yes")
 
 # ── Load predictions and ground truth (fread for speed) ──────────────────────
 cat("Loading data...\n"); t0 <- proc.time()
@@ -147,6 +150,7 @@ for (name in names(binary_heads)) {
     ECE_uncal = round(ece_uncal, 4),
     ECE_lofo_temp = round(ece_temp, 4),
     ECE_lofo_platt = round(ece_platt, 4),
+    ECE_lofo_dirichlet = NA,
     global_T = round(global_T, 3),
     global_a = round(global_P[1], 3),
     global_b = round(global_P[2], 3),
@@ -258,6 +262,7 @@ for (name in names(softmax2_heads)) {
     ECE_uncal = round(ece_uncal, 4),
     ECE_lofo_temp = round(ece_temp, 4),
     ECE_lofo_platt = round(ece_platt, 4),
+    ECE_lofo_dirichlet = NA,
     global_T = round(global_T, 3),
     global_a = round(global_P[1], 3),
     global_b = round(global_P[2], 3),
@@ -342,6 +347,7 @@ for (name in names(multi_heads)) {
 
   pmat_lofo_uncal <- dd$pmat
   pmat_lofo_temp  <- matrix(0, nrow(dd$pmat), K)
+  pmat_lofo_dir   <- matrix(0, nrow(dd$pmat), K)
   lofo_T <- numeric(length(families))
 
   for (fi in seq_along(families)) {
@@ -351,19 +357,32 @@ for (name in names(multi_heads)) {
 
     if (length(unique(apply(dd$ymat[train_idx, , drop = FALSE], 1, which.max))) < 2) {
       pmat_lofo_temp[held, ] <- dd$pmat[held, ]
+      pmat_lofo_dir[held, ] <- dd$pmat[held, ]
       lofo_T[fi] <- 1
       next
     }
 
     T_fit <- safe_opt_multi_temp(z_all[train_idx, , drop = FALSE],
                                   dd$ymat[train_idx, , drop = FALSE])
+    if (isTRUE(ENABLE_DIRICHLET)) {
+      D_fit <- fit_dirichlet_calibration(
+        dd$pmat[train_idx, , drop = FALSE],
+        dd$ymat[train_idx, , drop = FALSE]
+      )
+    }
     pmat_lofo_temp[held, ] <- softmax_t(z_all[held, , drop = FALSE], T_fit)
+    if (isTRUE(ENABLE_DIRICHLET)) {
+      pmat_lofo_dir[held, ] <- predict_dirichlet_calibration(D_fit, dd$pmat[held, , drop = FALSE])
+    } else {
+      pmat_lofo_dir[held, ] <- dd$pmat[held, ]
+    }
     lofo_T[fi] <- T_fit
   }
 
   acc <- mean(apply(dd$pmat, 1, which.max) == apply(dd$ymat, 1, which.max))
   ece_uncal <- ece_confidence(pmat_lofo_uncal, dd$ymat)
   ece_temp  <- ece_confidence(pmat_lofo_temp, dd$ymat)
+  ece_dir <- if (isTRUE(ENABLE_DIRICHLET)) ece_confidence(pmat_lofo_dir, dd$ymat) else NA_real_
 
   global_T <- safe_opt_multi_temp(z_all, dd$ymat)
 
@@ -374,6 +393,7 @@ for (name in names(multi_heads)) {
     ECE_uncal = round(ece_uncal, 4),
     ECE_lofo_temp = round(ece_temp, 4),
     ECE_lofo_platt = NA,
+    ECE_lofo_dirichlet = ifelse(is.na(ece_dir), NA, round(ece_dir, 4)),
     global_T = round(global_T, 3),
     global_a = NA, global_b = NA,
     median_lofo_T = round(median(lofo_T), 3),
@@ -384,6 +404,7 @@ for (name in names(multi_heads)) {
   if (acc >= ACC_THRESHOLD && nrow(dd$pmat) >= N_FILTER) {
     conf_uncal <- apply(pmat_lofo_uncal, 1, max)
     conf_temp  <- apply(pmat_lofo_temp, 1, max)
+    conf_dir   <- apply(pmat_lofo_dir, 1, max)
     correct <- (apply(dd$pmat, 1, which.max) == apply(dd$ymat, 1, which.max)) * 1
 
     rd <- bind_rows(
@@ -391,6 +412,12 @@ for (name in names(multi_heads)) {
       reliability_data(conf_temp, correct) %>%
         mutate(method = paste0("LOFO-Temp (med T=", round(median(lofo_T), 2), ")"))
     )
+    if (isTRUE(ENABLE_DIRICHLET)) {
+      rd <- bind_rows(
+        rd,
+        reliability_data(conf_dir, correct) %>% mutate(method = "LOFO-Dirichlet")
+      )
+    }
     rd$method <- factor(rd$method, levels = unique(rd$method))
     plot_list[[name]] <- ggplot(rd, aes(x = mean_pred, y = obs_freq,
                                         color = method, size = n)) +
@@ -401,8 +428,15 @@ for (name in names(multi_heads)) {
       labs(title = paste0(name, " [", K, "-class, LOFO CV]  (N=",
                           nrow(dd$pmat), ", ", length(families),
                           " families, Acc=", round(acc, 3), ")"),
-           subtitle = paste0("ECE uncal:", round(ece_uncal, 4),
-                             " | LOFO-Temp:", round(ece_temp, 4)),
+           subtitle = if (isTRUE(ENABLE_DIRICHLET)) {
+             paste0("ECE uncal:", round(ece_uncal, 4),
+                    " | LOFO-Temp:", round(ece_temp, 4),
+                    " | LOFO-Dir:", round(ece_dir, 4))
+           } else {
+             paste0("ECE uncal:", round(ece_uncal, 4),
+                    " | LOFO-Temp:", round(ece_temp, 4),
+                    " | LOFO-Dir: disabled")
+           },
            x = "Confidence (max prob)", y = "Accuracy") +
       theme_minimal() + theme(legend.position = "bottom")
   }
@@ -463,6 +497,7 @@ for (name in names(patho_heads)) {
     ECE_uncal = NA,
     ECE_lofo_temp = NA,
     ECE_lofo_platt = round(ece_platt, 4),
+    ECE_lofo_dirichlet = NA,
     global_T = NA,
     global_a = round(global_P[1], 3),
     global_b = round(global_P[2], 3),
@@ -509,7 +544,7 @@ compact <- summary_df %>%
   transmute(
     target, type, N_total, N_families, Acc,
     ECE_uncal,
-    ECE_lofo = coalesce(ECE_lofo_platt, ECE_lofo_temp),
+    ECE_lofo = coalesce(ECE_lofo_platt, ECE_lofo_dirichlet, ECE_lofo_temp),
     global_params = case_when(
       !is.na(global_T) & !is.na(global_a) ~
         paste0("T=", global_T, " a=", global_a, " b=", global_b),
@@ -537,7 +572,7 @@ ece_df <- sf %>%
   transmute(
     target, N_total,
     ECE_uncal,
-    ECE_lofo = coalesce(ECE_lofo_platt, ECE_lofo_temp)
+    ECE_lofo = coalesce(ECE_lofo_platt, ECE_lofo_dirichlet, ECE_lofo_temp)
   ) %>%
   tidyr::pivot_longer(cols = starts_with("ECE_"),
                       names_to = "method", values_to = "ECE") %>%
@@ -563,7 +598,7 @@ p_ece <- ggplot(ece_df, aes(x = reorder(target, -ECE), y = ECE, fill = method)) 
 # SAVE PDF
 # ══════════════════════════════════════════════════════════════════════════════
 
-pdf_path <- file.path(cfg$reports_dir, "calibration_logo.pdf")
+pdf_path <- file.path(cfg$output_dir, "calibration_logo.pdf")
 pdf(pdf_path, width = 14, height = 9, onefile = TRUE)
 
 # Page 1: compact comparison table
@@ -622,6 +657,6 @@ all_results <- list(
   source = "bd_pred_new_full.csv",
   genome_taxonomy = fam_map
 )
-rds_path <- file.path(cfg$reports_dir, "calibration_logo.rds")
+rds_path <- file.path(cfg$output_dir, "calibration_logo.rds")
 saveRDS(all_results, rds_path)
 cat("Results saved to:", rds_path, "\n")

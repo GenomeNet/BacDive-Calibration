@@ -1,6 +1,6 @@
 # ── Test set inference for BacDive multihead model ───────────────────────────
 # Combined data generation + inference in a single pass (no intermediate RDS)
-# Usage: conda run -n tf Rscript eval_test.R
+# Usage: conda run -n tf Rscript R/eval_test.R
 
 library(deepG)
 library(keras)
@@ -11,7 +11,8 @@ library(dplyr)
 args <- commandArgs(trailingOnly = FALSE)
 file_arg <- grep("^--file=", args, value = TRUE)
 script_path <- if (length(file_arg)) normalizePath(sub("^--file=", "", file_arg)) else normalizePath(getwd())
-proj_dir <- if (dir.exists(script_path)) script_path else dirname(script_path)
+script_dir <- if (dir.exists(script_path)) script_path else dirname(script_path)
+proj_dir <- if (basename(script_dir) == "R") dirname(script_dir) else script_dir
 source(file.path(proj_dir, "R", "config_paths.R"))
 cfg <- load_bacdive_config(
   proj_dir,

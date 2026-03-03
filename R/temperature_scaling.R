@@ -5,12 +5,15 @@ library(gridExtra)
 args <- commandArgs(trailingOnly = FALSE)
 file_arg <- grep("^--file=", args, value = TRUE)
 script_path <- if (length(file_arg)) normalizePath(sub("^--file=", "", file_arg)) else normalizePath(getwd())
-proj_dir <- if (dir.exists(script_path)) script_path else dirname(script_path)
+script_dir <- if (dir.exists(script_path)) script_path else dirname(script_path)
+proj_dir <- if (basename(script_dir) == "R") dirname(script_dir) else script_dir
 source(file.path(proj_dir, "R", "config_paths.R"))
 source(file.path(proj_dir, "R", "calibration_common.R"))
 cfg <- load_bacdive_config(proj_dir, required = c("bacdive_complete_rds"))
 
 ACC_THRESHOLD <- 0.6  # heads below this get flagged and excluded from plots
+ENABLE_DIRICHLET <- tolower(Sys.getenv("ENABLE_DIRICHLET_MULTICLASS", "false")) %in%
+  c("1", "true", "yes")
 
 # ── Load pre-computed validation predictions ──────────────────────────────────
 l_all <- readRDS(cfg$bacdive_complete_rds)
@@ -65,7 +68,9 @@ fit_binary <- function(name, p_all, y_all, sw_all, type_label, is_linear = FALSE
     row <- data.frame(
       target = name, type = type_label, N_test = length(y_t), Acc = round(acc, 3),
       ECE_uncal = NA, ECE_temp = NA, ECE_platt = round(ece(p_t_platt, y_t), 4),
+      ECE_dirichlet = NA,
       NLL_uncal = NA, NLL_temp = NA, NLL_platt = round(nll_binary_platt(opt_P, p_t, y_t), 4),
+      NLL_dirichlet = NA,
       T = NA, a = round(opt_P[1], 3), b = round(opt_P[2], 3),
       stringsAsFactors = FALSE)
     # Plot data
@@ -81,9 +86,11 @@ fit_binary <- function(name, p_all, y_all, sw_all, type_label, is_linear = FALSE
       target = name, type = type_label, N_test = length(y_t), Acc = round(acc, 3),
       ECE_uncal = round(ece(p_t, y_t), 4), ECE_temp = round(ece(p_t_temp, y_t), 4),
       ECE_platt = round(ece(p_t_platt, y_t), 4),
+      ECE_dirichlet = NA,
       NLL_uncal = round(nll_binary_temp(1, z_t, y_t), 4),
       NLL_temp = round(nll_binary_temp(opt_T, z_t, y_t), 4),
       NLL_platt = round(nll_binary_platt(opt_P, z_t, y_t), 4),
+      NLL_dirichlet = NA,
       T = round(opt_T, 3), a = round(opt_P[1], 3), b = round(opt_P[2], 3),
       stringsAsFactors = FALSE)
     pdata <- list(p_t = p_t, p_t_temp = p_t_temp, p_t_platt = p_t_platt,
@@ -186,17 +193,27 @@ for (name in names(multi_heads)) {
   z_c <- log(pmax(p_c, eps)); z_te <- log(pmax(p_te, eps))
   opt_T <- optimize(nll_multi_temp, c(0.01, 20), z_mat = z_c, y_mat = y_c)$minimum
   p_te_temp <- softmax_t(z_te, opt_T)
+  if (isTRUE(ENABLE_DIRICHLET)) {
+    dir_fit <- fit_dirichlet_calibration(p_c, y_c)
+    p_te_dir <- predict_dirichlet_calibration(dir_fit, p_te)
+  } else {
+    p_te_dir <- p_te
+  }
 
   acc <- mean(apply(p_te, 1, which.max) == apply(y_te, 1, which.max))
   ece_conf_before <- ece_confidence(p_te, y_te)
   ece_conf_after  <- ece_confidence(p_te_temp, y_te)
+  ece_conf_dir <- if (isTRUE(ENABLE_DIRICHLET)) ece_confidence(p_te_dir, y_te) else NA_real_
   nll_before <- nll_multi_temp(1, z_te, y_te)
   nll_after  <- nll_multi_temp(opt_T, z_te, y_te)
+  nll_dir <- if (isTRUE(ENABLE_DIRICHLET)) nll_multi_temp(1, log(pmax(p_te_dir, 1e-9)), y_te) else NA_real_
 
   row <- data.frame(
     target = name, type = paste0("multiclass_", ncol(p_te)), N_test = nrow(p_te), Acc = round(acc, 3),
     ECE_uncal = round(ece_conf_before, 4), ECE_temp = round(ece_conf_after, 4), ECE_platt = NA,
+    ECE_dirichlet = ifelse(is.na(ece_conf_dir), NA, round(ece_conf_dir, 4)),
     NLL_uncal = round(nll_before, 4), NLL_temp = round(nll_after, 4), NLL_platt = NA,
+    NLL_dirichlet = ifelse(is.na(nll_dir), NA, round(nll_dir, 4)),
     T = round(opt_T, 3), a = NA, b = NA,
     stringsAsFactors = FALSE)
   all_rows[[name]] <- row
@@ -206,18 +223,33 @@ for (name in names(multi_heads)) {
     correct_before <- (apply(p_te, 1, which.max) == apply(y_te, 1, which.max)) * 1
     conf_after <- apply(p_te_temp, 1, max)
     correct_after <- (apply(p_te_temp, 1, which.max) == apply(y_te, 1, which.max)) * 1
+    conf_dir <- apply(p_te_dir, 1, max)
+    correct_dir <- (apply(p_te_dir, 1, which.max) == apply(y_te, 1, which.max)) * 1
     rd <- bind_rows(
       reliability_data(conf_before, correct_before) %>% mutate(method = "Uncalibrated"),
       reliability_data(conf_after, correct_after) %>% mutate(method = paste0("Temp (T=", round(opt_T, 2), ")"))
     )
+    if (isTRUE(ENABLE_DIRICHLET)) {
+      rd <- bind_rows(
+        rd,
+        reliability_data(conf_dir, correct_dir) %>% mutate(method = "Dirichlet")
+      )
+    }
     rd$method <- factor(rd$method, levels = unique(rd$method))
     plot_list[[name]] <- ggplot(rd, aes(x = mean_pred, y = obs_freq, color = method, size = n)) +
       geom_point(alpha = 0.8) +
       geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "grey50") +
       xlim(0, 1) + ylim(0, 1) +
       labs(title = paste0(name, " [", ncol(p_te), "-class]  (N=", nrow(p_te), ", Acc=", round(acc, 3), ")"),
-           subtitle = paste0("Conf ECE: ", round(ece_conf_before, 3), " -> ", round(ece_conf_after, 3),
-                             "  |  NLL: ", round(nll_before, 3), " -> ", round(nll_after, 3)),
+           subtitle = if (isTRUE(ENABLE_DIRICHLET)) {
+             paste0("ECE uncal:", round(ece_conf_before, 3),
+                    " | Temp:", round(ece_conf_after, 3),
+                    " | Dir:", round(ece_conf_dir, 3))
+           } else {
+             paste0("ECE uncal:", round(ece_conf_before, 3),
+                    " | Temp:", round(ece_conf_after, 3),
+                    " | Dir: disabled")
+           },
            x = "Confidence (max prob)", y = "Accuracy") +
       theme_minimal() + theme(legend.position = "bottom")
   }
@@ -280,7 +312,7 @@ theme_tbl <- ttheme_minimal(
                  bg_params = list(fill = "#E8E8E8"))
 )
 
-pdf_path <- file.path(cfg$reports_dir, "calibration_results.pdf")
+pdf_path <- file.path(cfg$output_dir, "calibration_results.pdf")
 pdf(pdf_path, width = 14, height = max(4, 0.4 * nrow(tbl) + 1.5))
 
 # Page 1: summary table
@@ -323,6 +355,6 @@ cat("Passing heads plotted:", paste(names(plot_list), collapse = ", "), "\n")
 all_results <- list(summary = summary_df, all_rows = all_rows,
                     seed = 42, cal_idx = cal_idx, test_idx = test_idx,
                     acc_threshold = ACC_THRESHOLD)
-rds_path <- file.path(cfg$reports_dir, "calibration_results.rds")
+rds_path <- file.path(cfg$output_dir, "calibration_results.rds")
 saveRDS(all_results, rds_path)
 cat("Results saved to:", rds_path, "\n")

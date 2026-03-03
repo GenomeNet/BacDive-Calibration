@@ -4,10 +4,11 @@
 # Platt parameters and runs diagnostic checks.
 #
 # Prereqs:
-#   - phenomnar Phase 3: data/selection_probs.rds + bugphyzz_with_proxies.rds
+#   - local selection artifacts: data/selection/selection_probs.rds +
+#     data/selection/bugphyzz_with_proxies.rds
 #   - bacdive: genome_family_map.csv, bd_pred_new_full.csv, labels, splits
 #
-# Usage: Rscript calibration_ipw_platt.R
+# Usage: Rscript R/calibration_ipw_platt.R
 
 library(ggplot2)
 library(dplyr)
@@ -17,7 +18,8 @@ library(data.table)
 args <- commandArgs(trailingOnly = FALSE)
 file_arg <- grep("^--file=", args, value = TRUE)
 script_path <- if (length(file_arg)) normalizePath(sub("^--file=", "", file_arg)) else normalizePath(getwd())
-proj_dir <- if (dir.exists(script_path)) script_path else dirname(script_path)
+script_dir <- if (dir.exists(script_path)) script_path else dirname(script_path)
+proj_dir <- if (basename(script_dir) == "R") dirname(script_dir) else script_dir
 source(file.path(proj_dir, "R", "config_paths.R"))
 source(file.path(proj_dir, "R", "calibration_common.R"))
 cfg <- load_bacdive_config(
@@ -854,10 +856,10 @@ csv_strat <- file.path(cfg$output_dir, "ipw_stratified_ece.csv")
 csv_trim <- file.path(cfg$output_dir, "ipw_trimming_sensitivity.csv")
 rds_out <- file.path(cfg$output_dir, "ipw_platt_results.rds")
 
-pdf_weights <- file.path(cfg$figures_dir, "fig_ipw_weights.pdf")
-pdf_calibration <- file.path(cfg$figures_dir, "fig_ipw_calibration.pdf")
-pdf_trimming <- file.path(cfg$figures_dir, "fig_ipw_trimming.pdf")
-pdf_tipping <- file.path(cfg$figures_dir, "fig_ipw_tipping.pdf")
+pdf_weights <- file.path(cfg$output_dir, "fig_ipw_weights.pdf")
+pdf_calibration <- file.path(cfg$output_dir, "fig_ipw_calibration.pdf")
+pdf_trimming <- file.path(cfg$output_dir, "fig_ipw_trimming.pdf")
+pdf_tipping <- file.path(cfg$output_dir, "fig_ipw_tipping.pdf")
 
 # CSV tables
 write.csv(comparison_df, csv_comparison, row.names = FALSE)

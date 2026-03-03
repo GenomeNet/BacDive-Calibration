@@ -5,6 +5,7 @@
 # Legacy reference repository (keep out of this repo)
 BacDiveComplete/
 bacdivecomplete/
+.claude/
 
 # Generated analysis artifacts
 output/
@@ -14,8 +15,16 @@ genome_family_map.csv
 *.rds
 *.pdf
 
+# Keep vendored local selection artifacts tracked, ignore everything else in data/
+!data/
+!data/selection/
+!data/selection/selection_probs.rds
+!data/selection/bugphyzz_with_proxies.rds
+data/deployment/
+
 # Build/cache artifacts
 *.log
 *.tmp
 .Rhistory
 .RData
+

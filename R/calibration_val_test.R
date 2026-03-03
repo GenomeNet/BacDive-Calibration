@@ -3,7 +3,7 @@
 # is a proper genus-level holdout (75% unseen genera). We therefore fit
 # calibration on 70% of the test set and evaluate on the remaining 30%.
 # Val-based calibration is shown alongside for comparison.
-# Usage: conda run -n genome Rscript calibration_val_test.R
+# Usage: conda run -n genome Rscript R/calibration_val_test.R
 
 library(ggplot2)
 library(dplyr)
@@ -12,7 +12,8 @@ library(gridExtra)
 args <- commandArgs(trailingOnly = FALSE)
 file_arg <- grep("^--file=", args, value = TRUE)
 script_path <- if (length(file_arg)) normalizePath(sub("^--file=", "", file_arg)) else normalizePath(getwd())
-proj_dir <- if (dir.exists(script_path)) script_path else dirname(script_path)
+script_dir <- if (dir.exists(script_path)) script_path else dirname(script_path)
+proj_dir <- if (basename(script_dir) == "R") dirname(script_dir) else script_dir
 source(file.path(proj_dir, "R", "config_paths.R"))
 source(file.path(proj_dir, "R", "calibration_common.R"))
 cfg <- load_bacdive_config(
@@ -24,6 +25,8 @@ ACC_THRESHOLD <- 0.6
 N_FILTER <- 100
 CAL_FRAC <- 0.7
 SEED <- 42
+ENABLE_DIRICHLET <- tolower(Sys.getenv("ENABLE_DIRICHLET_MULTICLASS", "false")) %in%
+  c("1", "true", "yes")
 
 # ── Load predictions and ground truth ────────────────────────────────────────
 bdpred <- read.csv(cfg$bd_pred_csv)
@@ -119,11 +122,15 @@ for (name in names(binary_heads)) {
     ECE_uncal = round(ece(p_e, y_e), 4),
     ECE_val_temp  = round(ece(p_e_val_temp, y_e), 4),
     ECE_val_platt = round(ece(p_e_val_pla, y_e), 4),
+    ECE_val_dirichlet = NA,
     ECE_tc_temp   = round(ece(p_e_tc_temp, y_e), 4),
     ECE_tc_platt  = round(ece(p_e_tc_pla, y_e), 4),
+    ECE_tc_dirichlet = NA,
     NLL_uncal = round(nll_binary_temp(1, z_e, y_e), 4),
     NLL_val_platt = round(nll_binary_platt(val_P, z_e, y_e), 4),
     NLL_tc_platt  = round(nll_binary_platt(tc_P, z_e, y_e), 4),
+    NLL_val_dirichlet = NA,
+    NLL_tc_dirichlet = NA,
     val_T = round(val_T, 3), val_a = round(val_P[1], 3), val_b = round(val_P[2], 3),
     tc_T = round(tc_T, 3), tc_a = round(tc_P[1], 3), tc_b = round(tc_P[2], 3),
     stringsAsFactors = FALSE)
@@ -211,11 +218,15 @@ for (name in names(softmax2_heads)) {
     ECE_uncal = round(ece(de$p, de$y), 4),
     ECE_val_temp  = round(ece(sigmoid(z_e / val_T), de$y), 4),
     ECE_val_platt = round(ece(p_e_val_pla, de$y), 4),
+    ECE_val_dirichlet = NA,
     ECE_tc_temp   = round(ece(sigmoid(z_e / tc_T), de$y), 4),
     ECE_tc_platt  = round(ece(p_e_tc_pla, de$y), 4),
+    ECE_tc_dirichlet = NA,
     NLL_uncal = round(nll_binary_temp(1, z_e, de$y), 4),
     NLL_val_platt = round(nll_binary_platt(val_P, z_e, de$y), 4),
     NLL_tc_platt  = round(nll_binary_platt(tc_P, z_e, de$y), 4),
+    NLL_val_dirichlet = NA,
+    NLL_tc_dirichlet = NA,
     val_T = round(val_T, 3), val_a = round(val_P[1], 3), val_b = round(val_P[2], 3),
     tc_T = round(tc_T, 3), tc_a = round(tc_P[1], 3), tc_b = round(tc_P[2], 3),
     stringsAsFactors = FALSE)
@@ -299,21 +310,41 @@ for (name in names(multi_heads)) {
   # Fit on val
   val_T <- optimize(nll_multi_temp, c(0.01, 20),
                     z_mat = zv, y_mat = dv$ymat)$minimum
+  if (isTRUE(ENABLE_DIRICHLET)) {
+    val_D <- fit_dirichlet_calibration(dv$pmat, dv$ymat)
+  }
   # Fit on test-cal
   tc_T <- optimize(nll_multi_temp, c(0.01, 20),
                    z_mat = zc, y_mat = dc$ymat)$minimum
+  if (isTRUE(ENABLE_DIRICHLET)) {
+    tc_D <- fit_dirichlet_calibration(dc$pmat, dc$ymat)
+  }
 
   pe_uncal    <- de$pmat
   pe_val_temp <- softmax_t(ze, val_T)
+  if (isTRUE(ENABLE_DIRICHLET)) {
+    pe_val_dir <- predict_dirichlet_calibration(val_D, de$pmat)
+  } else {
+    pe_val_dir <- de$pmat
+  }
   pe_tc_temp  <- softmax_t(ze, tc_T)
+  if (isTRUE(ENABLE_DIRICHLET)) {
+    pe_tc_dir <- predict_dirichlet_calibration(tc_D, de$pmat)
+  } else {
+    pe_tc_dir <- de$pmat
+  }
 
   acc <- mean(apply(de$pmat, 1, which.max) == apply(de$ymat, 1, which.max))
   ece_uncal    <- ece_confidence(pe_uncal, de$ymat)
   ece_val_temp <- ece_confidence(pe_val_temp, de$ymat)
+  ece_val_dir <- if (isTRUE(ENABLE_DIRICHLET)) ece_confidence(pe_val_dir, de$ymat) else NA_real_
   ece_tc_temp  <- ece_confidence(pe_tc_temp, de$ymat)
+  ece_tc_dir <- if (isTRUE(ENABLE_DIRICHLET)) ece_confidence(pe_tc_dir, de$ymat) else NA_real_
   nll_uncal    <- nll_multi_temp(1, ze, de$ymat)
   nll_val_temp <- nll_multi_temp(val_T, ze, de$ymat)
   nll_tc_temp  <- nll_multi_temp(tc_T, ze, de$ymat)
+  nll_val_dir <- if (isTRUE(ENABLE_DIRICHLET)) nll_multi_temp(1, log(pmax(pe_val_dir, 1e-9)), de$ymat) else NA_real_
+  nll_tc_dir <- if (isTRUE(ENABLE_DIRICHLET)) nll_multi_temp(1, log(pmax(pe_tc_dir, 1e-9)), de$ymat) else NA_real_
 
   row <- data.frame(
     target = name, type = paste0("multiclass_", ncol(de$pmat)),
@@ -321,11 +352,15 @@ for (name in names(multi_heads)) {
     ECE_uncal = round(ece_uncal, 4),
     ECE_val_temp = round(ece_val_temp, 4),
     ECE_val_platt = NA,
+    ECE_val_dirichlet = ifelse(is.na(ece_val_dir), NA, round(ece_val_dir, 4)),
     ECE_tc_temp = round(ece_tc_temp, 4),
     ECE_tc_platt = NA,
+    ECE_tc_dirichlet = ifelse(is.na(ece_tc_dir), NA, round(ece_tc_dir, 4)),
     NLL_uncal = round(nll_uncal, 4),
     NLL_val_platt = NA,
     NLL_tc_platt = NA,
+    NLL_val_dirichlet = ifelse(is.na(nll_val_dir), NA, round(nll_val_dir, 4)),
+    NLL_tc_dirichlet = ifelse(is.na(nll_tc_dir), NA, round(nll_tc_dir, 4)),
     val_T = round(val_T, 3), val_a = NA, val_b = NA,
     tc_T = round(tc_T, 3), tc_a = NA, tc_b = NA,
     stringsAsFactors = FALSE)
@@ -334,7 +369,9 @@ for (name in names(multi_heads)) {
   if (acc >= ACC_THRESHOLD && nrow(de$pmat) >= N_FILTER) {
     conf_uncal <- apply(pe_uncal, 1, max)
     conf_val   <- apply(pe_val_temp, 1, max)
+    conf_val_dir <- apply(pe_val_dir, 1, max)
     conf_tc    <- apply(pe_tc_temp, 1, max)
+    conf_tc_dir <- apply(pe_tc_dir, 1, max)
     correct <- (apply(de$pmat, 1, which.max) == apply(de$ymat, 1, which.max)) * 1
 
     rd <- bind_rows(
@@ -344,6 +381,13 @@ for (name in names(multi_heads)) {
       reliability_data(conf_tc, correct) %>%
         mutate(method = paste0("TestCal-Temp (T=", round(tc_T, 2), ")"))
     )
+    if (isTRUE(ENABLE_DIRICHLET)) {
+      rd <- bind_rows(
+        rd,
+        reliability_data(conf_val_dir, correct) %>% mutate(method = "Val-Dirichlet"),
+        reliability_data(conf_tc_dir, correct) %>% mutate(method = "TestCal-Dirichlet")
+      )
+    }
     rd$method <- factor(rd$method, levels = unique(rd$method))
     plot_list[[name]] <- ggplot(rd, aes(x = mean_pred, y = obs_freq,
                                         color = method, size = n)) +
@@ -353,9 +397,18 @@ for (name in names(multi_heads)) {
       xlim(0, 1) + ylim(0, 1) +
       labs(title = paste0(name, " [", ncol(de$pmat), "-class]  (N_eval=",
                           nrow(de$pmat), ", Acc=", round(acc, 3), ")"),
-           subtitle = paste0("ECE uncal:", round(ece_uncal, 4),
-                             " | val-T:", round(ece_val_temp, 4),
-                             " | tc-T:", round(ece_tc_temp, 4)),
+           subtitle = if (isTRUE(ENABLE_DIRICHLET)) {
+             paste0("ECE uncal:", round(ece_uncal, 4),
+                    " | val-T:", round(ece_val_temp, 4),
+                    " | val-Dir:", round(ece_val_dir, 4),
+                    " | tc-T:", round(ece_tc_temp, 4),
+                    " | tc-Dir:", round(ece_tc_dir, 4))
+           } else {
+             paste0("ECE uncal:", round(ece_uncal, 4),
+                    " | val-T:", round(ece_val_temp, 4),
+                    " | tc-T:", round(ece_tc_temp, 4),
+                    " | Dir: disabled")
+           },
            x = "Confidence (max prob)", y = "Accuracy") +
       theme_minimal() + theme(legend.position = "bottom")
   }
@@ -406,11 +459,15 @@ for (name in names(patho_heads)) {
     ECE_uncal = NA,
     ECE_val_temp = NA,
     ECE_val_platt = round(ece(p_e_val, de$y), 4),
+    ECE_val_dirichlet = NA,
     ECE_tc_temp = NA,
     ECE_tc_platt = round(ece(p_e_tc, de$y), 4),
+    ECE_tc_dirichlet = NA,
     NLL_uncal = NA,
     NLL_val_platt = round(nll_binary_platt(val_P, de$raw, de$y), 4),
     NLL_tc_platt  = round(nll_binary_platt(tc_P, de$raw, de$y), 4),
+    NLL_val_dirichlet = NA,
+    NLL_tc_dirichlet = NA,
     val_T = NA, val_a = round(val_P[1], 3), val_b = round(val_P[2], 3),
     tc_T = NA, tc_a = round(tc_P[1], 3), tc_b = round(tc_P[2], 3),
     stringsAsFactors = FALSE)
@@ -461,8 +518,8 @@ compact <- summary_df %>%
   transmute(
     target, type, N_eval, Acc,
     ECE_uncal,
-    ECE_val = coalesce(ECE_val_platt, ECE_val_temp),
-    ECE_tc  = coalesce(ECE_tc_platt, ECE_tc_temp),
+    ECE_val = coalesce(ECE_val_platt, ECE_val_dirichlet, ECE_val_temp),
+    ECE_tc  = coalesce(ECE_tc_platt, ECE_tc_dirichlet, ECE_tc_temp),
     val_params = ifelse(is.na(val_T),
                         paste0("a=", val_a, " b=", val_b),
                         paste0("T=", val_T)),
@@ -541,8 +598,8 @@ ece_df <- sf %>%
   transmute(
     target, N_eval,
     ECE_uncal,
-    ECE_val = coalesce(ECE_val_platt, ECE_val_temp),
-    ECE_tc  = coalesce(ECE_tc_platt, ECE_tc_temp)
+    ECE_val = coalesce(ECE_val_platt, ECE_val_dirichlet, ECE_val_temp),
+    ECE_tc  = coalesce(ECE_tc_platt, ECE_tc_dirichlet, ECE_tc_temp)
   ) %>%
   tidyr::pivot_longer(cols = starts_with("ECE_"),
                       names_to = "method", values_to = "ECE") %>%
@@ -569,7 +626,7 @@ p_ece <- ggplot(ece_df, aes(x = reorder(target, -ECE), y = ECE, fill = method)) 
 # SAVE PDF
 # ══════════════════════════════════════════════════════════════════════════════
 
-pdf_path <- file.path(cfg$reports_dir, "calibration_val_test.pdf")
+pdf_path <- file.path(cfg$output_dir, "calibration_val_test.pdf")
 pdf(pdf_path, width = 14, height = 9, onefile = TRUE)
 
 # Page 1: compact comparison table
@@ -636,6 +693,6 @@ all_results <- list(
   acc_threshold = ACC_THRESHOLD,
   source = "bd_pred_new_full.csv"
 )
-rds_path <- file.path(cfg$reports_dir, "calibration_val_test.rds")
+rds_path <- file.path(cfg$output_dir, "calibration_val_test.rds")
 saveRDS(all_results, rds_path)
 cat("Results saved to:", rds_path, "\n")

@@ -2,7 +2,7 @@
 # Extracts genus from FASTA headers (bulk bash), joins to microbe.cards S1
 # for Family. Saves genome_family_map.csv for reuse.
 #
-# Usage: conda run -n genome Rscript build_genome_family_map.R
+# Usage: conda run -n genome Rscript R/build_genome_family_map.R
 
 library(dplyr)
 library(readxl)
@@ -10,7 +10,8 @@ library(readxl)
 args <- commandArgs(trailingOnly = FALSE)
 file_arg <- grep("^--file=", args, value = TRUE)
 script_path <- if (length(file_arg)) normalizePath(sub("^--file=", "", file_arg)) else normalizePath(getwd())
-proj_dir <- if (dir.exists(script_path)) script_path else dirname(script_path)
+script_dir <- if (dir.exists(script_path)) script_path else dirname(script_path)
+proj_dir <- if (basename(script_dir) == "R") dirname(script_dir) else script_dir
 source(file.path(proj_dir, "R", "config_paths.R"))
 cfg <- load_bacdive_config(
   proj_dir,

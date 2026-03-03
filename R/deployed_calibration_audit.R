@@ -6,7 +6,7 @@
 #   2-class softmax: max(m)  → raw max
 #   Pathogenicity: (tanh(5 * abs(m - threshold)) + 1) / 2  → tanh-distance
 #   Biosafety: threshold-based with tanh
-# Usage: conda run -n genome Rscript deployed_calibration_audit.R
+# Usage: conda run -n genome Rscript R/deployed_calibration_audit.R
 
 library(ggplot2)
 library(dplyr)
@@ -15,7 +15,8 @@ library(gridExtra)
 args <- commandArgs(trailingOnly = FALSE)
 file_arg <- grep("^--file=", args, value = TRUE)
 script_path <- if (length(file_arg)) normalizePath(sub("^--file=", "", file_arg)) else normalizePath(getwd())
-proj_dir <- if (dir.exists(script_path)) script_path else dirname(script_path)
+script_dir <- if (dir.exists(script_path)) script_path else dirname(script_path)
+proj_dir <- if (basename(script_dir) == "R") dirname(script_dir) else script_dir
 source(file.path(proj_dir, "R", "config_paths.R"))
 source(file.path(proj_dir, "R", "calibration_common.R"))
 cfg <- load_bacdive_config(
@@ -324,7 +325,7 @@ cat("Mean ECE deployed _prob:", round(mean(summary_df$ECE_deployed), 4), "\n")
 # ══════════════════════════════════════════════════════════════════════════════
 # Save PDF
 # ══════════════════════════════════════════════════════════════════════════════
-pdf_path <- file.path(cfg$reports_dir, "deployed_calibration_audit.pdf")
+pdf_path <- file.path(cfg$output_dir, "deployed_calibration_audit.pdf")
 pdf(pdf_path, width = 14, height = 5, onefile = TRUE)
 
 # Page 1: summary table
