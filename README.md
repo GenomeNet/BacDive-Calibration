@@ -18,7 +18,7 @@ Detailed internal documentation was moved to [docs/documentation.md](docs/docume
 │   ├── build_genome_family_map.R
 │   ├── temperature_scaling.R
 │   ├── config_paths.R
-│   ├── calibration_common.R
+│   ├── calibration_common.R   # Stores main helper functions
 │   └── selection/             # Vendored selection-model code/artifacts glue
 ├── data/
 │   ├── selection/             # Local selection artifacts
@@ -27,7 +27,6 @@ Detailed internal documentation was moved to [docs/documentation.md](docs/docume
 ├── docs/
 │   ├── documentation.md       # Full technical documentation
 │   └── implementation_plan.md
-├── BacDiveComplete/           # Legacy reference script location
 └── .env.example               # Public-safe environment template
 ```
 
@@ -103,7 +102,3 @@ Source: `data/deployment/bd_calibration_ece_YYYYMMDD.csv` (date-stamped at gener
 
 `biosafety` and `cellsize` are listed as `EXCLUDED` in the CSV summary.
 
-## Notes
-
-- `BacDiveComplete/` is legacy scope; this repo holds calibration and standalone analyses.
-- For full background, formulas, diagnostics, and IPW details, use [docs/documentation.md](docs/documentation.md).
