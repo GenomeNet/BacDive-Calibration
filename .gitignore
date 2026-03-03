@@ -1,0 +1,21 @@
+# Local environment configuration
+.env
+.env.local
+
+# Legacy reference repository (keep out of this repo)
+BacDiveComplete/
+bacdivecomplete/
+
+# Generated analysis artifacts
+output/
+figures/
+slurm_output/
+genome_family_map.csv
+*.rds
+*.pdf
+
+# Build/cache artifacts
+*.log
+*.tmp
+.Rhistory
+.RData
