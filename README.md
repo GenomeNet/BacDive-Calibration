@@ -8,22 +8,22 @@ Detailed internal documentation was moved to [docs/documentation.md](docs/docume
 
 ```text
 .
-├── R/                         # Calibration and analysis scripts
-│   ├── calibration_logo.R
-│   ├── calibration_ipw_platt.R
-│   ├── calibration_val_test.R
-│   ├── deploy_calibrated_csv.R
-│   ├── deployed_ece_curves_all_methods.R
-│   ├── deployed_calibration_audit.R
-│   ├── build_genome_family_map.R
-│   ├── temperature_scaling.R
-│   ├── config_paths.R
-│   ├── calibration_common.R   # Stores main helper functions
-│   └── selection/             # Vendored selection-model code/artifacts glue
+├── R/
+│   ├── calibration_logo.R               # LOFO CV: fit Platt/temp per phylum fold, pick best method by event ECE
+│   ├── calibration_ipw_platt.R          # IPW-weighted Platt scaling to correct for selection bias
+│   ├── calibration_val_test.R           # Val→test and within-test 70/30 calibration comparison
+│   ├── deploy_calibrated_csv.R          # Build date-stamped calibrated CSVs + ECE summary for deployment
+│   ├── deployed_ece_curves_all_methods.R  # Audit PDF: reliability curves + ECE table (all methods)
+│   ├── deployed_calibration_audit.R     # Audit of legacy _prob confidence columns from BacDive website
+│   ├── build_genome_family_map.R        # Extract genus from FASTA headers, join to Family via microbe.cards
+│   ├── temperature_scaling.R            # Standalone temperature scaling exploration (early prototype)
+│   ├── config_paths.R                   # .env loader and path resolution helpers
+│   ├── calibration_common.R             # Shared helpers: sigmoid, logit, ECE, Platt/Dirichlet fitting
+│   └── selection/                       # Vendored phenomnar selection-model code for IPW weights
 ├── data/
-│   ├── selection/             # Local selection artifacts
-│   └── deployment/            # Deployment CSV outputs
-├── output/                    # Reports/tables/figures from calibration runs
+│   ├── selection/             # Selection probability artifacts from phenomnar
+│   └── deployment/            # Date-stamped calibrated CSVs + ECE summaries
+├── output/                    # LOFO results (.rds), audit PDFs, comparison tables
 ├── docs/
 │   ├── documentation.md       # Full technical documentation
 │   └── implementation_plan.md
