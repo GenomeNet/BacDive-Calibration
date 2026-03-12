@@ -28,3 +28,7 @@ data/deployment/
 .Rhistory
 .RData
 
+# Exceptions
+!data/deployment/bd_calibrated_integrate_*.csv
+!data/deployment/bd_calibrated_ece_*.csv
+!output/deployed_ece_curves_all_methods_lofo.pdf
