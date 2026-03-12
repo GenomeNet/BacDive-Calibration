@@ -8,27 +8,24 @@ bacdivecomplete/
 .claude/
 
 # Generated analysis artifacts
-output/
+output/*
+!output/deployed_ece_curves_all_methods_lofo.pdf
 figures/
 slurm_output/
 genome_family_map.csv
 *.rds
-*.pdf
 
 # Keep vendored local selection artifacts tracked, ignore everything else in data/
 !data/
 !data/selection/
 !data/selection/selection_probs.rds
 !data/selection/bugphyzz_with_proxies.rds
-data/deployment/
+data/deployment/*
+!data/deployment/bd_calibrated_integrate_*.csv
+!data/deployment/bd_calibration_ece_*.csv
 
 # Build/cache artifacts
 *.log
 *.tmp
 .Rhistory
 .RData
-
-# Exceptions
-!data/deployment/bd_calibrated_integrate_*.csv
-!data/deployment/bd_calibrated_ece_*.csv
-!output/deployed_ece_curves_all_methods_lofo.pdf
