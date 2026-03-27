@@ -29,3 +29,8 @@ data/deployment/*
 *.tmp
 .Rhistory
 .RData
+
+# Local-only helper scripts/docs/tests
+run_eval_test.sh
+docs/implementation_plan.md
+R/smoke_test.R

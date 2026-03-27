@@ -26,7 +26,6 @@ Detailed internal documentation was moved to [docs/documentation.md](docs/docume
 ├── output/                    # LOFO results (.rds), audit PDFs, comparison tables
 ├── docs/
 │   ├── documentation.md       # Full technical documentation
-│   └── implementation_plan.md
 └── .env.example               # Public-safe environment template
 ```
 

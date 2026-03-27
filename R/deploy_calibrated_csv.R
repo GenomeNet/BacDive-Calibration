@@ -32,6 +32,7 @@ out_full_cal <- file.path(deployment_dir, paste0("bd_calibrated_full_", date_tag
 out_integrate_cal <- file.path(deployment_dir, paste0("bd_calibrated_integrate_", date_tag, ".csv"))
 out_ece <- file.path(deployment_dir, paste0("bd_calibration_ece_", date_tag, ".csv"))
 param_source <- Sys.getenv("BACDIVE_DEPLOY_PARAM_SOURCE", unset = "lofo_median")
+method_objective <- Sys.getenv("BACDIVE_DEPLOY_OBJECTIVE", unset = "event")  # "event" or "conf"
 
 clip01 <- function(p, eps = 1e-9) pmax(pmin(p, 1 - eps), eps)
 
@@ -247,7 +248,11 @@ for (name in names(binary_heads)) {
   e_event_temp <- if (all(is.na(p_temp))) NA_real_ else ece(p_temp, y)
   e_event_platt <- if (all(is.na(p_platt))) NA_real_ else ece(p_platt, y)
 
-  method <- choose_method_from_lofo(srow)
+  method <- if (method_objective == "conf") {
+    pick_best_method(e_none, e_temp, e_platt)
+  } else {
+    choose_method_from_lofo(srow)
+  }
   e_sel <- c(none = e_none, temp = e_temp, platt = e_platt)[method]
 
   selected_methods[[name]] <- list(method = method, T = T, a = a, b = b)
@@ -307,7 +312,11 @@ for (name in names(softmax2_heads)) {
   e_event_temp <- if (all(is.na(p2_temp))) NA_real_ else ece(p2_temp, y_event)
   e_event_platt <- if (all(is.na(p2_platt))) NA_real_ else ece(p2_platt, y_event)
 
-  method <- choose_method_from_lofo(srow)
+  method <- if (method_objective == "conf") {
+    pick_best_method(e_none, e_temp, e_platt)
+  } else {
+    choose_method_from_lofo(srow)
+  }
   e_sel <- c(none = e_none, temp = e_temp, platt = e_platt)[method]
 
   selected_methods[[name]] <- list(method = method, T = T, a = a, b = b)
@@ -355,7 +364,11 @@ for (name in names(multiclass_heads)) {
   e_event_none <- ece(as.vector(pmat), as.vector(ymat))
   e_event_temp <- if (all(is.na(p_temp))) NA_real_ else ece(as.vector(p_temp), as.vector(ymat))
 
-  method <- choose_method_from_lofo(srow)
+  method <- if (method_objective == "conf") {
+    pick_best_method(e_none, e_temp)
+  } else {
+    choose_method_from_lofo(srow)
+  }
   e_sel <- c(none = e_none, temp = e_temp)[method]
 
   selected_methods[[name]] <- list(method = method, T = T, a = NA_real_, b = NA_real_)
@@ -402,7 +415,14 @@ for (name in names(patho_heads)) {
   e_event_none <- ece(sigmoid(raw - h$threshold), y)
   e_event_platt <- if (all(is.na(p_platt))) NA_real_ else ece(p_platt, y)
 
-  method <- choose_method_from_lofo(srow)
+  method <- if (method_objective == "conf") {
+    cands <- c(none = e_none, platt_linear = e_platt)
+    cands <- cands[is.finite(cands)]
+    best <- names(cands)[which.min(cands)][1]
+    if (("none" %in% names(cands)) && (cands[["none"]] - cands[[best]]) <= 1e-4) "none" else best
+  } else {
+    choose_method_from_lofo(srow)
+  }
   e_sel <- c(none = e_none, platt_linear = e_platt)[method]
 
   selected_methods[[name]] <- list(method = method,
@@ -430,7 +450,7 @@ ece_summary <- bind_rows(rows) %>%
     calibration_fit_scope = cal_fit_scope,
     eval_split = "valtest",
     taxonomy_filter = taxonomy_filter,
-    objective = "lofo_event_ece_method_selection",
+    objective = paste0(method_objective, "_ece_method_selection"),
     generated_utc = format(Sys.time(), tz = "UTC", usetz = TRUE)
   )
 
@@ -459,7 +479,7 @@ excluded_rows <- data.frame(
   calibration_fit_scope = cal_fit_scope,
   eval_split = "valtest",
   taxonomy_filter = taxonomy_filter,
-  objective = "lofo_event_ece_method_selection",
+  objective = paste0(method_objective, "_ece_method_selection"),
   generated_utc = format(Sys.time(), tz = "UTC", usetz = TRUE),
   stringsAsFactors = FALSE
 )
