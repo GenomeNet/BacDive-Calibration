@@ -60,6 +60,25 @@ Rscript R/deployed_ece_curves_all_methods.R
 
 Deployment outputs are written to `data/deployment/`.
 
+## Base Model Accuracy (Val vs Test)
+
+Checkpoint: `bacdive_attn_lstm_sum_28/Ep.023.hdf5`. Balanced accuracy = mean per-class recall.
+
+| Head | Type | N val | N test | Acc val | Acc test | Bal acc val | Bal acc test |
+|------|------|------:|-------:|--------:|---------:|------------:|-------------:|
+| spore | binary | 573 | 690 | 0.900 | 0.878 | 0.905 | 0.890 |
+| oxygen_obligate | softmax2 | 42 | 80 | 0.881 | 0.875 | 0.831 | 0.840 |
+| oxygen_growth | softmax2 | 1055 | 1326 | 0.906 | 0.807 | 0.883 | 0.779 |
+| oxygen_microaerophile | binary | 1313 | 1635 | 0.828 | 0.805 | 0.808 | 0.767 |
+| motility | binary | 677 | 953 | 0.749 | 0.682 | 0.758 | 0.685 |
+| gram | multiclass(3) | 834 | 1112 | 0.866 | 0.772 | 0.854 | 0.599 |
+| oxygen_facultative | softmax2 | 111 | 233 | 0.676 | 0.631 | 0.672 | 0.633 |
+| flagellum | multiclass(6) | 78 | 145 | 0.423 | 0.531 | 0.331 | 0.458 |
+| cellshape | multiclass(11) | 709 | 996 | 0.165 | 0.167 | 0.262 | 0.151 |
+| pathogenicity_human | linear | 2215 | 2575 | 0.276 | 0.312 | 0.376 | 0.413 |
+| pathogenicity_animal | linear | 2215 | 2575 | 0.573 | 0.689 | 0.460 | 0.606 |
+| pathogenicity_plant | linear | 2215 | 2575 | 0.932 | 0.935 | 0.509 | 0.474 |
+
 ## Methodology
 
 - Base model: deepG multi-head phenotype predictor (binary, 2-class, multiclass, and linear heads).
